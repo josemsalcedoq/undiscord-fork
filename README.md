@@ -15,7 +15,13 @@ token), which is the lowest-friction, lowest-fingerprint way to do this.
 - Deletion is **permanent**. Use **Scan counts** and the confirmation dialog before running.
 - Only use this on your own account, for your own messages.
 
-## Install
+## Two ways to run it
+
+- **Browser + userscript manager** (Tampermonkey/Violentmonkey) — steps below.
+- **Native macOS app, no extension** — see [`mac-app/`](mac-app/): `cd mac-app && swift run`. A self-contained
+  window that loads Discord and injects the same script. Same engine, same warnings.
+
+## Install (userscript)
 
 1. Install a userscript manager: **Tampermonkey** or **Violentmonkey** (browser extension).
 2. Open `undiscord-multiselect.user.js` — the manager should offer to install it. (Or create a new
