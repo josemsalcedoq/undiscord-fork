@@ -7,7 +7,7 @@ import UndiscordCore
 /// bundle in place, and relaunch. Shows a "What's new" changelog after an update.
 final class Updater {
     static let shared = Updater()
-    private let repo = "josemsalcedoq/undiscord-fork"
+    private let repo = "josemsalcedoq/undiscord-macos"
 
     struct Release {
         let tag: String

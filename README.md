@@ -11,16 +11,16 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/josemsalcedoq/undiscord-fork/actions/workflows/ci.yml"><img src="https://github.com/josemsalcedoq/undiscord-fork/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/josemsalcedoq/undiscord-fork/releases/latest"><img src="https://img.shields.io/github/v/release/josemsalcedoq/undiscord-fork?color=5865F2&label=release" alt="Release"></a>
+  <a href="https://github.com/josemsalcedoq/undiscord-macos/actions/workflows/ci.yml"><img src="https://github.com/josemsalcedoq/undiscord-macos/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/josemsalcedoq/undiscord-macos/releases/latest"><img src="https://img.shields.io/github/v/release/josemsalcedoq/undiscord-macos?color=5865F2&label=release" alt="Release"></a>
   <img src="https://img.shields.io/badge/macOS-12%2B-000?logo=apple" alt="macOS 12+">
   <img src="https://img.shields.io/badge/license-MIT-3ad07f" alt="MIT">
-  <a href="https://github.com/josemsalcedoq/undiscord-fork/releases/latest/download/Undiscord.dmg"><img src="https://img.shields.io/github/downloads/josemsalcedoq/undiscord-fork/total?color=5865F2&label=downloads" alt="Downloads"></a>
+  <a href="https://github.com/josemsalcedoq/undiscord-macos/releases/latest/download/Undiscord.dmg"><img src="https://img.shields.io/github/downloads/josemsalcedoq/undiscord-macos/total?color=5865F2&label=downloads" alt="Downloads"></a>
 </p>
 
 <p align="center">
-  <a href="https://josemsalcedoq.github.io/undiscord-fork/"><b>Website</b></a> ·
-  <a href="https://github.com/josemsalcedoq/undiscord-fork/releases/latest/download/Undiscord.dmg"><b>Download DMG</b></a> ·
+  <a href="https://josemsalcedoq.github.io/undiscord-macos/"><b>Website</b></a> ·
+  <a href="https://github.com/josemsalcedoq/undiscord-macos/releases/latest/download/Undiscord.dmg"><b>Download DMG</b></a> ·
   <a href="#usage"><b>Usage</b></a> ·
   <a href="#faq"><b>FAQ</b></a>
 </p>
@@ -65,7 +65,7 @@ but you install a userscript manager and paste channel/guild IDs by hand, one co
 
 ## Download & install
 
-1. Download **[`Undiscord.dmg`](https://github.com/josemsalcedoq/undiscord-fork/releases/latest/download/Undiscord.dmg)** from the [latest release](https://github.com/josemsalcedoq/undiscord-fork/releases/latest).
+1. Download **[`Undiscord.dmg`](https://github.com/josemsalcedoq/undiscord-macos/releases/latest/download/Undiscord.dmg)** from the [latest release](https://github.com/josemsalcedoq/undiscord-macos/releases/latest).
 2. Open the DMG and drag **Undiscord** to **Applications**.
 3. The app is **unsigned / un-notarized** (no paid Apple Developer account), so on first launch:
    **right-click the app → Open**, then confirm — or allow it in **System Settings → Privacy & Security**.
@@ -136,7 +136,7 @@ None of this makes the activity ToS-compliant — see the warning at the top. It
 ## Project layout
 
 ```
-undiscord-fork/
+undiscord-macos/
 ├─ docs/                      # GitHub Pages landing site (index.html, icon.png, og.png)
 ├─ mac-app/
 │  ├─ Package.swift           # SwiftPM: UndiscordApp (exe) + UndiscordCore (lib) + tests
