@@ -27,7 +27,8 @@ public enum PackageParser {
         public var errorDescription: String? {
             switch self {
             case .unzipFailed: return "Could not unzip the package."
-            case .messagesIndexNotFound: return "messages/index.json not found in package."
+            case .messagesIndexNotFound:
+                return "Could not find your messages folder in the package. Make sure you picked the .zip Discord sent (or its extracted folder)."
             }
         }
     }
@@ -59,15 +60,36 @@ public enum PackageParser {
         return tmp
     }
 
-    /// Locate the `messages` directory (handles a few common package layouts).
+    /// Locate the messages directory. Discord localizes its name (messages, Mensajes,
+    /// Nachrichten, メッセージ, …) and newer exports may omit index.json, so we detect by
+    /// CONTENT rather than name: a folder that holds either index.json or channel
+    /// subfolders (each with a channel.json). Checks root, package/, and one level down.
     public static func findMessagesDir(_ root: URL) -> URL? {
         let fm = FileManager.default
-        var candidates = [root.appendingPathComponent("messages"),
-                          root.appendingPathComponent("package/messages")]
-        if let items = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) {
-            for item in items { candidates.append(item.appendingPathComponent("messages")) }
+        var bases = [root, root.appendingPathComponent("package")]
+        if let items = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) {
+            bases.append(contentsOf: items)
         }
-        return candidates.first { fm.fileExists(atPath: $0.appendingPathComponent("index.json").path) }
+        for base in bases {
+            // A child of base might be the messages dir (e.g. root/package/Mensajes).
+            if let children = try? fm.contentsOfDirectory(at: base, includingPropertiesForKeys: [.isDirectoryKey]) {
+                for child in children where looksLikeMessagesDir(child) { return child }
+            }
+            // …or base itself is (e.g. the user picked the messages folder directly).
+            if looksLikeMessagesDir(base) { return base }
+        }
+        return nil
+    }
+
+    /// A messages folder either carries index.json or contains at least one channel
+    /// subfolder (a directory with a channel.json inside).
+    public static func looksLikeMessagesDir(_ dir: URL) -> Bool {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { return false }
+        if fm.fileExists(atPath: dir.appendingPathComponent("index.json").path) { return true }
+        guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return false }
+        return items.contains { fm.fileExists(atPath: $0.appendingPathComponent("channel.json").path) }
     }
 
     /// Parse the messages directory into DM (1) and group DM (3) conversations.
