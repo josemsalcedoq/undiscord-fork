@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    name: Build DMG and publish release
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run tests
+        run: |
+          node --test mac-app/js-tests/*.test.js
+          swift test --package-path mac-app
+
+      - name: Build DMG
+        run: |
+          chmod +x mac-app/bundle.sh mac-app/make-dmg.sh
+          cd mac-app && ./make-dmg.sh
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" mac-app/Undiscord.dmg \
+            --title "Undiscord ${GITHUB_REF_NAME}" \
+            --notes "Native macOS app to bulk-delete your own Discord messages.
+
+          **Install:** open the DMG and drag Undiscord to Applications. The app is
+          unsigned/un-notarized, so on first launch right-click it → Open (or allow it
+          in System Settings → Privacy & Security).
+
+          Deletes your own messages using your account token. Automating a user account
+          is against Discord's ToS and carries a ban risk regardless of speed. Delays are
+          floored (search ≥ 2000ms, delete ≥ 700ms) to reduce rate-limit bans."

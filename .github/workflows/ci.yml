@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  js:
+    name: JS engine (syntax + mock tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Syntax check
+        run: node --check mac-app/Sources/UndiscordApp/undiscord.js
+      - name: Engine mock tests
+        run: node --test mac-app/js-tests/*.test.js
+
+  swift:
+    name: Swift (build + parser tests)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build --package-path mac-app
+      - name: Test
+        run: swift test --package-path mac-app

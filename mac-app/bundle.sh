@@ -21,6 +21,11 @@ cp "${BIN}" "${APP}/Contents/MacOS/Undiscord"
 cp -R "${RESBUNDLE}" "${APP}/Contents/Resources/"
 cp -R "${RESBUNDLE}" "${APP}/Contents/MacOS/"
 
+# App icon
+if [ -f icon/Undiscord.icns ]; then
+  cp icon/Undiscord.icns "${APP}/Contents/Resources/Undiscord.icns"
+fi
+
 cat > "${APP}/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -30,6 +35,7 @@ cat > "${APP}/Contents/Info.plist" <<'PLIST'
     <key>CFBundleDisplayName</key>     <string>Undiscord</string>
     <key>CFBundleIdentifier</key>      <string>com.josemsalcedoq.undiscord</string>
     <key>CFBundleExecutable</key>      <string>Undiscord</string>
+    <key>CFBundleIconFile</key>        <string>Undiscord</string>
     <key>CFBundlePackageType</key>     <string>APPL</string>
     <key>CFBundleShortVersionString</key> <string>0.1.0</string>
     <key>CFBundleVersion</key>         <string>1</string>

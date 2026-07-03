@@ -11,6 +11,11 @@ it behaves like a normal client, while looking and launching like a native app.
 
 The app lives in [`mac-app/`](mac-app/).
 
+## Download
+Grab the latest **`Undiscord.dmg`** from the [Releases](../../releases) page, open it, and drag
+Undiscord to Applications. It's unsigned/un-notarized, so on first launch **right-click → Open**
+(or allow it in System Settings → Privacy & Security). Or build it yourself (below).
+
 ## ⚠️ Read this first
 
 - Deletes **your own** messages using **your account token**, like the original Undiscord.
@@ -39,13 +44,16 @@ open Undiscord.app
 ```
 
 ## Using the panel
-1. Click **🗑️**. It auto-grabs your token + user id and loads your **DMs** and **Servers**.
-2. Pick a tab (Direct Messages / Servers), filter, and **check** the conversations to clean.
+1. Click **🗑️**. It auto-grabs your token + user id and loads your **DMs, friends and Servers**.
+2. Pick a tab (Direct Messages / Servers / Imported), filter, and **check** the conversations to clean.
 3. *(Recommended)* **Scan counts** — shows how many of your messages are in each selected target.
 4. **Delete selected** → confirm. Watch the progress bar + log. **Stop** halts after the current message.
 
-- A **DM/group** target deletes your messages in that conversation.
+- A **DM/friend** target deletes your messages in that conversation (friends' DMs are opened on demand).
 - A **Server** target searches the whole server for messages authored by you and deletes across channels.
+- The **Imported** tab (File → Import Data Package…) lists **every** DM/group from your Discord data
+  package — including closed ones — and deletes them directly by message id. Request the package in
+  Discord → Settings → Data & Privacy → Request all of my Data (it arrives in a few days).
 
 ## Rate limiting (adapted from the original Undiscord)
 

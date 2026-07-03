@@ -1,12 +1,15 @@
 import AppKit
 import WebKit
+import UniformTypeIdentifiers
+import UndiscordCore
 
 // A tiny native macOS shell: it embeds a WKWebView, loads Discord's web client,
-// and injects the Undiscord Multiselect userscript. No Tampermonkey needed — the
-// app IS the script host. Your login persists between launches (default data store),
-// and injecting via WKUserScript sidesteps Discord's CSP (which blocks bookmarklets).
+// and injects the Undiscord panel. No Tampermonkey needed — the app IS the script
+// host. Your login persists between launches (default data store), and injecting via
+// WKUserScript sidesteps Discord's CSP (which blocks bookmarklets). A native bridge
+// lets the panel import a Discord Data Package (.zip) to reach your full DM history.
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var webView: WKWebView!
 
@@ -24,6 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         } else {
             NSLog("undiscord.js resource not found — panel will not load.")
         }
+
+        // Bridge: the panel posts { action: "import" } to open a data package.
+        config.userContentController.add(self, name: "undms")
 
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
@@ -87,6 +93,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         completionHandler(alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil)
     }
 
+    // MARK: - Data Package import bridge
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "undms",
+              let body = message.body as? [String: Any],
+              (body["action"] as? String) == "import" else { return }
+        importDataPackage()
+    }
+
+    @objc func importDataPackage() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Select your Discord data package (.zip) or its extracted folder"
+        if let zip = UTType(filenameExtension: "zip") { panel.allowedContentTypes = [zip, .folder] }
+        panel.begin { [weak self] resp in
+            guard let self, resp == .OK, let url = panel.url else { return }
+            self.notifyJS("Reading data package… this can take a moment.")
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let channels = try PackageParser.parseToDictionaries(url)
+                    let data = try JSONSerialization.data(withJSONObject: channels, options: [])
+                    let json = String(data: data, encoding: .utf8) ?? "[]"
+                    DispatchQueue.main.async {
+                        self.webView.evaluateJavaScript("window.__undmsImport(\(json))", completionHandler: nil)
+                    }
+                } catch {
+                    DispatchQueue.main.async { self.notifyJS("Import failed: \(error.localizedDescription)") }
+                }
+            }
+        }
+    }
+
+    private func notifyJS(_ msg: String) {
+        let escaped = msg.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        webView.evaluateJavaScript("window.__undmsStatus && window.__undmsStatus(\"\(escaped)\")", completionHandler: nil)
+    }
+
     // Minimal menu so Cmd+Q and clipboard shortcuts (needed to type/paste your
     // Discord login) work inside the web view.
     private func setupMenu() {
@@ -99,6 +144,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "Quit Undiscord", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
+
+        let fileItem = NSMenuItem()
+        mainMenu.addItem(fileItem)
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(withTitle: "Import Data Package…", action: #selector(importDataPackage), keyEquivalent: "i")
+        fileItem.submenu = fileMenu
 
         let editItem = NSMenuItem()
         mainMenu.addItem(editItem)

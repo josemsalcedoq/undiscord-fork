@@ -1,12 +1,11 @@
-/*
- * Undiscord Multiselect — panel script injected by the native macOS app.
- * Runs inside the app's Discord web view (WKUserScript). Renders a panel that
- * discovers your DMs + friends + servers, multiselect, and bulk-deletes YOUR OWN messages.
+/**
+ * Undiscord panel — injected into the app's Discord web view.
+ * Discovers your DMs, friends, servers and imported conversations, then bulk-deletes
+ * your own messages with a conservative, self-throttling rate limiter.
  *
- * WARNING: This uses your own account token to delete your own messages. Automating
- * a user account is against Discord's Terms of Service and can, in principle, get an
- * account actioned regardless of how slow you go. Use conservative delays. Rate-limit
- * engine adapted from victornpb/undiscord. For deleting YOUR OWN messages only.
+ * Uses your own account token. Automating a user account violates Discord's ToS and
+ * carries a ban risk independent of speed — for deleting your own messages only.
+ * Rate-limit engine adapted from victornpb/undiscord.
  */
 
 (function () {
@@ -15,6 +14,15 @@
   const API = 'https://discord.com/api/v9';
   const CDN = 'https://cdn.discordapp.com';
   const PREFIX = '[undiscord-ms]';
+
+  // Hard floors on the delays. Below these, Discord's search/delete routes rate-limit
+  // aggressively and the traffic pattern looks automated — so they cannot be lowered.
+  const MIN_SEARCH_DELAY = 2000;
+  const MIN_DELETE_DELAY = 700;
+  const clampDelays = (search, del) => ({
+    searchDelay: Math.max(MIN_SEARCH_DELAY, parseInt(search) || 0),
+    deleteDelay: Math.max(MIN_DELETE_DELAY, parseInt(del) || 0),
+  });
 
   // ------------------------------------------------------------------ utils --
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -222,6 +230,15 @@
         this.state = this._freshState();
         this.log('info', `\n[${i + 1}/${queue.length}] ${job.label}`);
 
+        // Imported (data-package) target: delete directly by message id, no search.
+        if (job.messageIds) {
+          if (this.onProgress) this.onProgress({ done: 0, total: job.messageIds.length, phase: 'target', target: job.label });
+          await this._runIdList(job);
+          grand.del += this.state.delCount;
+          grand.fail += this.state.failCount;
+          continue;
+        }
+
         const cid = await this._resolveChannel(job);
         if (job.guildId === '@me' && !cid) {
           this.log('error', `Could not open a DM channel for ${job.label}; skipping.`);
@@ -340,6 +357,24 @@
       }
     }
 
+    // Delete an explicit list of message ids (from a data-package import) directly,
+    // with the same rate-limit backoff. No search needed; the package holds channel+id.
+    async _runIdList(job) {
+      const ids = job.messageIds || [];
+      this.state.grandTotal = ids.length;
+      for (const id of ids) {
+        if (!this.running) return;
+        let attempt = 0;
+        while (attempt < this.options.maxAttempt) {
+          const r = await this._deleteOne({ channel_id: job.channelId, id, timestamp: null, content: '' });
+          if (r === 'RETRY') { attempt++; await wait(this.options.deleteDelay); }
+          else break;
+        }
+        if (this.onProgress) this.onProgress({ done: this.state.delCount, total: this.state.grandTotal, phase: 'running', target: '' });
+        await wait(this.options.deleteDelay);
+      }
+    }
+
     async _deleteOne(message) {
       const url = `${API}/channels/${message.channel_id}/messages/${message.id}`;
       let resp;
@@ -354,6 +389,7 @@
       this._ping(Date.now() - t0);
 
       if (!resp.ok) {
+        if (resp.status === 404) { this.state.delCount++; return 'OK'; } // already deleted
         if (resp.status === 429) {
           const w = (await resp.json()).retry_after * 1000;
           this.stats.throttledCount++;
@@ -381,8 +417,9 @@
       }
 
       this.state.delCount++;
-      const when = new Date(message.timestamp).toLocaleString();
-      this.log('deleted', `[${this.state.delCount}/${this.state.grandTotal}] ${when} — ${esc((message.content || '').slice(0, 100)) || (message.attachments?.length ? '[attachment]' : '[embed]')}`);
+      const when = message.timestamp ? new Date(message.timestamp).toLocaleString() : '';
+      const body = esc((message.content || '').slice(0, 100)) || (message.attachments?.length ? '[attachment]' : '#' + message.id);
+      this.log('deleted', `[${this.state.delCount}/${this.state.grandTotal}] ${when} ${when ? '— ' : ''}${body}`);
       return 'OK';
     }
 
@@ -391,6 +428,7 @@
     }
 
     async countTarget(job) {
+      if (job.messageIds) return job.messageIds.length; // imported: count is known
       const cid = await this._resolveChannel(job);
       if (job.guildId === '@me' && !cid) return -3; // couldn't open DM
       const save = { ch: this.options.channelId, g: this.options.guildId, st: this.state };
@@ -414,7 +452,7 @@
   // =====================================================================
   const engine = new Engine();
   let TOKEN = null, ME = null;
-  let DMS = [], GUILDS = [];
+  let DMS = [], GUILDS = [], IMPORTED = [];
 
   const ICON = {
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/></svg>',
@@ -485,8 +523,11 @@
     .undms-row.sel .undms-chk{background:var(--u-acc);border-color:var(--u-acc)}
     .undms-chk svg{width:12px;height:12px;color:#fff;opacity:0;stroke-width:3.5}
     .undms-row.sel .undms-chk svg{opacity:1}
-    .undms-empty{padding:26px 16px;text-align:center;color:var(--u-dim);font-size:13px}
-    .undms-empty small{display:block;margin-top:6px;color:#72767d}
+    .undms-empty{padding:26px 16px;text-align:center;color:var(--u-dim);font-size:13px;line-height:1.5}
+    .undms-empty small{display:block;margin:8px 0 4px;color:#72767d}
+    .undms-imp-btn{margin-top:12px;background:var(--u-acc);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-weight:600;cursor:pointer}
+    .undms-imp-btn:hover{background:var(--u-acch)}
+    .undms-optnote{padding:0 14px 12px;color:#e5c07b;font-size:11px;line-height:1.4}
 
     .undms-adv{border-top:1px solid var(--u-line)}
     .undms-adv summary{list-style:none;cursor:pointer;padding:9px 14px;color:var(--u-mut);font-size:12px;font-weight:600;user-select:none}
@@ -544,16 +585,18 @@
         <div class="undms-tabs">
           <button data-tab="dm" class="on">Direct Messages</button>
           <button data-tab="guild">Servers</button>
+          <button data-tab="import">Imported</button>
         </div>
         <div class="undms-search">${ICON.search}<input id="undms-filter" placeholder="Filter…"></div>
         <div class="undms-list" id="undms-list"></div>
         <details class="undms-adv">
           <summary>⚙ Advanced settings</summary>
           <div class="undms-opts">
-            <label>Search delay (ms)<input type="number" id="undms-sd" value="30000" min="100" step="100"></label>
-            <label>Delete delay (ms)<input type="number" id="undms-dd" value="1000" min="50" step="50"></label>
+            <label>Search delay (ms)<input type="number" id="undms-sd" value="30000" min="2000" step="100"></label>
+            <label>Delete delay (ms)<input type="number" id="undms-dd" value="1000" min="700" step="50"></label>
             <label class="chk"><input type="checkbox" id="undms-pin"> include pinned</label>
           </div>
+          <div class="undms-optnote">Enforced minimums: search ≥ 2000ms, delete ≥ 700ms — going lower gets you rate-limited and risks a ban.</div>
         </details>
         <div class="undms-sum"><span id="undms-selinfo">0 selected</span><span id="undms-cntinfo"></span></div>
         <div class="undms-actions">
@@ -590,7 +633,29 @@
     };
 
     const fmtCount = (n) => (n === -1 ? '…' : n === -2 ? 'err' : n === -3 ? '—' : String(n));
-    const selected = () => [...DMS, ...GUILDS].filter((x) => x._sel);
+    const selected = () => [...DMS, ...GUILDS, ...IMPORTED].filter((x) => x._sel);
+
+    const requestImport = () => {
+      const bridge = window.webkit?.messageHandlers?.undms;
+      if (!bridge) return engine.log('error', 'Data-package import is only available in the native app.');
+      engine.log('info', 'Opening file picker… choose your Discord data package (.zip) or its folder.');
+      bridge.postMessage({ action: 'import' });
+    };
+    window.__undmsStatus = (m) => engine.log('info', m);
+    window.__undmsImport = (arr) => {
+      IMPORTED = (arr || []).map((c) => ({
+        kind: 'import', source: 'package', channelId: c.channelId, type: c.type,
+        label: c.label || `DM ${c.channelId}`,
+        sub: `${(c.count || 0).toLocaleString()} messages · package`,
+        count: c.count || (c.messageIds || []).length,
+        messageIds: c.messageIds || [], avatarUrl: null,
+      })).sort((a, b) => b.count - a.count);
+      tab = 'import';
+      panel.querySelectorAll('.undms-tabs button').forEach((x) => x.classList.toggle('on', x.dataset.tab === 'import'));
+      renderList(); updateSummary();
+      const total = IMPORTED.reduce((a, c) => a + c.count, 0);
+      engine.log('success', `Imported ${IMPORTED.length} conversations (~${total.toLocaleString()} of your messages) from the data package.`);
+    };
 
     function updateSummary() {
       const sel = selected();
@@ -603,12 +668,18 @@
     }
 
     function renderList() {
-      const items = tab === 'dm' ? DMS : GUILDS;
+      const items = tab === 'dm' ? DMS : tab === 'guild' ? GUILDS : IMPORTED;
       const q = $('#undms-filter').value.toLowerCase();
       const filtered = items.filter((it) => it.label.toLowerCase().includes(q));
       listEl.innerHTML = '';
+      if (tab === 'import' && !IMPORTED.length) {
+        const box = h(`<div class="undms-empty">Import your <b>Discord Data Package</b> to reach every DM/group you have ever had — even closed ones.<small>Request it in Discord → Settings → Data &amp; Privacy → Request all of my Data (arrives in a few days). Then load the .zip here.</small><button class="undms-imp-btn">Import Data Package…</button></div>`);
+        box.querySelector('button').onclick = requestImport;
+        listEl.appendChild(box);
+        return;
+      }
       if (!filtered.length) {
-        listEl.appendChild(h(`<div class="undms-empty">${TOKEN ? 'Nothing here.' : 'Connecting…'}${tab === 'dm' && TOKEN ? '<small>Closed DMs with non-friends only appear via a Discord Data Package import.</small>' : ''}</div>`));
+        listEl.appendChild(h(`<div class="undms-empty">${TOKEN ? 'Nothing here.' : 'Connecting…'}${tab === 'dm' && TOKEN ? '<small>Closed DMs with non-friends only appear via a Data Package import (Imported tab).</small>' : ''}</div>`));
         return;
       }
       for (const it of filtered) {
@@ -634,6 +705,8 @@
     const toJob = (it) =>
       it.kind === 'guild'
         ? { label: it.label, guildId: it.guildId }
+        : it.kind === 'import'
+        ? { label: it.label, channelId: it.channelId, messageIds: it.messageIds }
         : { label: it.label, channelId: it.channelId || null, userId: it.userId, guildId: '@me' };
 
     // events
@@ -652,8 +725,19 @@
     $('#undms-filter').oninput = renderList;
 
     function syncOpts() {
-      engine.options.searchDelay = Math.max(100, parseInt($('#undms-sd').value) || 30000);
-      engine.options.deleteDelay = Math.max(50, parseInt($('#undms-dd').value) || 1000);
+      const rawS = parseInt($('#undms-sd').value) || 0;
+      const rawD = parseInt($('#undms-dd').value) || 0;
+      const c = clampDelays(rawS || 30000, rawD || 1000);
+      if (rawS && rawS < MIN_SEARCH_DELAY) {
+        engine.log('warn', `Search delay raised to the ${MIN_SEARCH_DELAY}ms minimum — Discord's search endpoint rate-limits hard below this.`);
+        $('#undms-sd').value = c.searchDelay;
+      }
+      if (rawD && rawD < MIN_DELETE_DELAY) {
+        engine.log('warn', `Delete delay raised to the ${MIN_DELETE_DELAY}ms minimum — faster deletes get throttled and look automated (ban risk).`);
+        $('#undms-dd').value = c.deleteDelay;
+      }
+      engine.options.searchDelay = c.searchDelay;
+      engine.options.deleteDelay = c.deleteDelay;
       engine.options.includePinned = $('#undms-pin').checked;
     }
     function setBusy(busy) {
@@ -728,6 +812,14 @@
 
   const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 
-  if (document.body) build();
-  else window.addEventListener('DOMContentLoaded', build);
+  // Only build the UI in a real browser/web view; skipped under Node (tests).
+  if (typeof document !== 'undefined') {
+    if (document.body) build();
+    else window.addEventListener('DOMContentLoaded', build);
+  }
+
+  // Export the pure logic for Node-based unit tests (no-op in the web view).
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { Engine, mergeDMs, clampDelays, MIN_SEARCH_DELAY, MIN_DELETE_DELAY, userAvatar, guildIcon };
+  }
 })();

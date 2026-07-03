@@ -1,3 +1,5 @@
 .build/
 Undiscord.app/
 *.app
+*.dmg
+dmg-stage/
