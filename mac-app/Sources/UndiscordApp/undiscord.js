@@ -33,6 +33,18 @@
   };
   const H = (resp, name) => { try { return resp.headers?.get?.(name) ?? '?'; } catch (_) { return '?'; } };
 
+  // Discord snowflakes carry a timestamp: id = (unix_ms - epoch) << 22. So a calendar
+  // date maps to a message id, which the search API accepts as min_id / max_id — that's
+  // how we filter deletions to a "from date → to date" window.
+  const DISCORD_EPOCH = 1420070400000; // 2015-01-01T00:00:00Z
+  // `end` shifts to the end of that day (23:59:59.999) so "to" is inclusive of the day.
+  const dateToSnowflake = (yyyyMmDd, end = false) => {
+    if (!yyyyMmDd) return null;
+    const ms = Date.parse(end ? `${yyyyMmDd}T23:59:59.999Z` : `${yyyyMmDd}T00:00:00.000Z`);
+    if (Number.isNaN(ms) || ms < DISCORD_EPOCH) return null;
+    return String((BigInt(ms) - BigInt(DISCORD_EPOCH)) << 22n);
+  };
+
   // ------------------------------------------------------------------ utils --
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const msToHMS = (ms) => {
@@ -181,6 +193,7 @@
     constructor() {
       this.options = {
         authToken: null, authorId: null,
+        minId: null, maxId: null, // optional date-range snowflakes (from/to)
         searchDelay: 30000, deleteDelay: 1000,
         includePinned: false, maxAttempt: 2, debug: false,
       };
@@ -321,6 +334,8 @@
       const p = new URLSearchParams();
       if (this.options.authorId) p.set('author_id', this.options.authorId);
       if (!dm && this.options.channelId) p.set('channel_id', this.options.channelId);
+      if (this.options.minId) p.set('min_id', this.options.minId);
+      if (this.options.maxId) p.set('max_id', this.options.maxId);
       p.set('sort_by', 'timestamp');
       p.set('sort_order', 'desc');
       p.set('offset', String(this.state.offset));
@@ -591,8 +606,10 @@
     .undms-adv summary:hover{color:var(--u-tx)}
     .undms-opts{display:flex;gap:12px;padding:2px 14px 12px;flex-wrap:wrap;align-items:flex-end}
     .undms-opts label{color:var(--u-dim);font-size:11px;font-weight:600;display:flex;flex-direction:column;gap:4px;text-transform:uppercase;letter-spacing:.02em}
-    .undms-opts input[type=number]{width:88px;background:var(--u-bg3);border:1px solid transparent;border-radius:7px;padding:7px;color:var(--u-tx);outline:none}
-    .undms-opts input[type=number]:focus{border-color:var(--u-acc)}
+    .undms-opts input[type=number],.undms-opts input[type=date]{width:88px;background:var(--u-bg3);border:1px solid transparent;border-radius:7px;padding:7px;color:var(--u-tx);outline:none;font-family:inherit}
+    .undms-opts input[type=date]{width:130px}
+    .undms-opts input[type=number]:focus,.undms-opts input[type=date]:focus{border-color:var(--u-acc)}
+    .undms-opts input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.7)}
     .undms-opts .chk{flex-direction:row;align-items:center;gap:7px;text-transform:none;letter-spacing:0}
     .undms-opts .chk input{width:16px;height:16px;accent-color:var(--u-acc)}
 
@@ -651,9 +668,12 @@
           <div class="undms-opts">
             <label>Search delay (ms)<input type="number" id="undms-sd" value="30000" min="2000" step="100"></label>
             <label>Delete delay (ms)<input type="number" id="undms-dd" value="1000" min="700" step="50"></label>
+            <label>From date<input type="date" id="undms-from"></label>
+            <label>To date<input type="date" id="undms-to"></label>
             <label class="chk"><input type="checkbox" id="undms-pin"> include pinned</label>
             <label class="chk"><input type="checkbox" id="undms-debug"> debug mode</label>
           </div>
+          <div class="undms-optnote">Date range is optional — leave either blank for open-ended. Only messages sent within the range are scanned and deleted.</div>
           <div class="undms-optnote">Enforced minimums: search ≥ 2000ms, delete ≥ 700ms — going lower gets you rate-limited and risks a ban.</div>
           <div class="undms-dbgrow" id="undms-dbgtools" style="display:none">
             <span class="lbl">Debug log:</span>
@@ -837,6 +857,16 @@
       engine.options.searchDelay = c.searchDelay;
       engine.options.deleteDelay = c.deleteDelay;
       engine.options.includePinned = $('#undms-pin').checked;
+
+      const from = $('#undms-from').value;
+      const to = $('#undms-to').value;
+      engine.options.minId = dateToSnowflake(from, false);
+      engine.options.maxId = dateToSnowflake(to, true);
+      if (from && to && engine.options.minId && engine.options.maxId
+          && BigInt(engine.options.minId) > BigInt(engine.options.maxId)) {
+        engine.log('warn', '“From date” is after “To date” — that range matches nothing. Ignoring the date filter.');
+        engine.options.minId = engine.options.maxId = null;
+      }
     }
     function setBusy(busy) {
       $('#undms-scan').disabled = busy;
@@ -924,6 +954,6 @@
 
   // Export the pure logic for Node-based unit tests (no-op in the web view).
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { Engine, mergeDMs, clampDelays, MIN_SEARCH_DELAY, MIN_DELETE_DELAY, userAvatar, guildIcon, obfuscate };
+    module.exports = { Engine, mergeDMs, clampDelays, MIN_SEARCH_DELAY, MIN_DELETE_DELAY, userAvatar, guildIcon, obfuscate, dateToSnowflake };
   }
 })();

@@ -3,7 +3,7 @@
 // Run with: node --test
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { Engine, mergeDMs, clampDelays, MIN_SEARCH_DELAY, MIN_DELETE_DELAY, obfuscate } =
+const { Engine, mergeDMs, clampDelays, MIN_SEARCH_DELAY, MIN_DELETE_DELAY, obfuscate, dateToSnowflake } =
   require('../Sources/UndiscordApp/undiscord.js');
 
 // ---- helpers --------------------------------------------------------------
@@ -30,6 +30,29 @@ test('clampDelays enforces the minimum floors', () => {
   assert.deepEqual(clampDelays(10, 10), { searchDelay: MIN_SEARCH_DELAY, deleteDelay: MIN_DELETE_DELAY });
   assert.deepEqual(clampDelays(5000, 5000), { searchDelay: 5000, deleteDelay: 5000 });
   assert.deepEqual(clampDelays('', ''), { searchDelay: MIN_SEARCH_DELAY, deleteDelay: MIN_DELETE_DELAY });
+});
+
+test('dateToSnowflake maps dates to snowflakes and rejects bad input', () => {
+  // Known: 2020-01-01T00:00:00Z → (1577836800000 - 1420070400000) << 22
+  const expected = String((BigInt(Date.parse('2020-01-01T00:00:00.000Z')) - 1420070400000n) << 22n);
+  assert.equal(dateToSnowflake('2020-01-01'), expected);
+  // end=true shifts to the end of the day, so it is strictly larger than the start.
+  assert.ok(BigInt(dateToSnowflake('2020-01-01', true)) > BigInt(dateToSnowflake('2020-01-01')));
+  assert.equal(dateToSnowflake(''), null);
+  assert.equal(dateToSnowflake(null), null);
+  assert.equal(dateToSnowflake('not-a-date'), null);
+  assert.equal(dateToSnowflake('2010-01-01'), null); // before Discord epoch
+});
+
+test('_searchUrl includes min_id/max_id only when the date range is set', () => {
+  const e = newEngine();
+  e.options.channelId = 'chan';
+  assert.ok(!e._searchUrl().includes('min_id'));
+  e.options.minId = '111';
+  e.options.maxId = '222';
+  const url = e._searchUrl();
+  assert.match(url, /min_id=111/);
+  assert.match(url, /max_id=222/);
 });
 
 test('obfuscate masks the middle of the token and keeps only the ends', () => {
