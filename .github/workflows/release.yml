@@ -1,8 +1,11 @@
 name: Release
 
+# Manual only. Releases created by Actions are authored by github-actions[bot];
+# to keep releases under the repo owner's name, cut them locally with:
+#   cd mac-app && ./make-dmg.sh && gh release create vX.Y.Z Undiscord.dmg
+# This workflow stays available for on-demand CI builds of the DMG.
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
